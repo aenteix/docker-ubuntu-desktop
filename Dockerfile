@@ -1,80 +1,44 @@
-FROM --platform=linux/amd64 ubuntu:latest
+FROM --platform=linux/amd64 ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:1
-ENV PULSE_SERVER=127.0.0.1
 
-# Base packages
-RUN apt update -y && apt install --no-install-recommends -y \
-    xfce4 \
-    xfce4-goodies \
+RUN apt update && apt install -y \
+    xfce4 xfce4-goodies \
     tigervnc-standalone-server \
-    novnc \
-    websockify \
-    sudo \
-    xterm \
-    vim \
-    net-tools \
-    curl \
-    wget \
-    git \
-    tzdata \
-    dbus-x11 \
-    x11-utils \
-    x11-xserver-utils \
-    x11-apps \
-    software-properties-common \
-    pulseaudio \
-    pulseaudio-utils \
-    ffmpeg \
-    python3 \
-    python3-pip \
+    novnc websockify \
+    dbus-x11 xterm \
+    firefox \
+    curl wget net-tools \
     && apt clean
 
-# Firefox repo
-RUN add-apt-repository ppa:mozillateam/ppa -y
-RUN echo 'Package: *' >> /etc/apt/preferences.d/mozilla-firefox
-RUN echo 'Pin: release o=LP-PPA-mozillateam' >> /etc/apt/preferences.d/mozilla-firefox
-RUN echo 'Pin-Priority: 1001' >> /etc/apt/preferences.d/mozilla-firefox
-RUN echo 'Unattended-Upgrade::Allowed-Origins:: "LP-PPA-mozillateam:jammy";' \
-    > /etc/apt/apt.conf.d/51unattended-upgrades-firefox
-
-RUN apt update -y && apt install -y firefox xubuntu-icon-theme
-
-# VNC setup
+# Setup VNC
 RUN mkdir -p /root/.vnc
-RUN touch /root/.Xauthority
 
-# Startup script
-RUN echo '#!/bin/bash\n\
+# password kosong (insecure)
+RUN echo "" | vncpasswd -f > /root/.vnc/passwd
+RUN chmod 600 /root/.vnc/passwd
+
+# XFCE startup
+RUN printf '#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec startxfce4\n' > /root/.vnc/xstartup && chmod +x /root/.vnc/xstartup
+
+# Start script
+RUN printf '#!/bin/bash\n\
 export DISPLAY=:1\n\
+PORT=${PORT:-8080}\n\
 \n\
-# Start PulseAudio\n\
-pulseaudio --start --exit-idle-time=-1\n\
-pactl load-module module-null-sink sink_name=virtual_output || true\n\
-pactl set-default-sink virtual_output\n\
+# hapus lock lama\n\
+rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1\n\
+vncserver -kill :1 >/dev/null 2>&1 || true\n\
 \n\
-# Start VNC\n\
-vncserver -localhost no -SecurityTypes None -geometry 1024x768 --I-KNOW-THIS-IS-INSECURE\n\
+# start VNC\n\
+vncserver :1 -geometry 1280x720 -depth 24 -localhost no -SecurityTypes None\n\
+sleep 5\n\
 \n\
-# SSL cert\n\
-openssl req -new -subj "/C=JP" -x509 -days 365 -nodes -out /self.pem -keyout /self.pem\n\
+# test VNC port dulu\n\
+netstat -tlnp\n\
 \n\
-# noVNC\n\
-websockify -D --web=/usr/share/novnc/ --cert=/self.pem 6080 localhost:5901\n\
-\n\
-# Audio stream\n\
-ffmpeg -f pulse -i virtual_output.monitor \
--acodec libmp3lame \
--b:a 128k \
--f mp3 \
--listen 1 \
-http://0.0.0.0:8000 &\n\
-\n\
-tail -f /dev/null' > /start.sh && chmod +x /start.sh
-
-EXPOSE 5901
-EXPOSE 6080
-EXPOSE 8000
+# noVNC ke port Railway\n\
+exec websockify --web=/usr/share/novnc/ $PORT localhost:5901\n' > /start.sh && chmod +x /start.sh
 
 CMD ["/start.sh"]
